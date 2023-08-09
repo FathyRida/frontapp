@@ -1,2 +1,27 @@
 @Library('front-end-application-jenkins-library') _
-Pipeline.RunFrontAppPipeline()
+
+pipeline {
+		agent any
+
+		stages {
+			stage('Checkout') {
+				steps {
+					echo "just a step"
+				}
+			}
+			
+			stage('Build') {
+				steps {
+					script {
+						myStep.build()
+					}
+				}
+			}
+
+     stage('Deploy') {
+				steps {
+					echo "Deploy code to k8s"
+				}
+		}
+		}
+	}
