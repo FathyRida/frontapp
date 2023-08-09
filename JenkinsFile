@@ -1,2 +1,2 @@
 @Library('front-end-application-jenkins-library') _
-Pipeline()
+Pipeline.RunFrontAppPipeline()
