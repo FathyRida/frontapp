@@ -1,8 +1,17 @@
 #!/bin/bash
 
-SRC_DIR="$DTW_DATA/archive"
+LOG_FILE="/applis/backup/backup_$(date +%Y%m%d_%H%M%S).log"
 DEST_DIR="/applis/backup"
-PATTERN="PCCF*_2025*"
+SRC_DIR="$DTW_DATA/archive"
+
+PATTERNS=(
+    "PCCF*_2025*"
+    "PCFS*_2025*"
+)
+
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"
+}
 
 if [ -z "$DTW_DATA" ]; then
     echo "[ERROR] DTW_DATA is not set."
@@ -14,16 +23,83 @@ if [ ! -d "$SRC_DIR" ]; then
     exit 1
 fi
 
-if [ ! -d "$DEST_DIR" ]; then
-    mkdir -p "$DEST_DIR" || { echo "[ERROR] Cannot create $DEST_DIR"; exit 1; }
-fi
+mkdir -p "$DEST_DIR" || { echo "[ERROR] Cannot create $DEST_DIR"; exit 1; }
 
-FILE_COUNT=$(ls -1 "$SRC_DIR"/$PATTERN 2>/dev/null | wc -l)
-if [ "$FILE_COUNT" -eq 0 ]; then
-    echo "[WARN] No files matching '$PATTERN' found."
+log "========================================"
+log "Backup session started"
+log "Source      : $SRC_DIR"
+log "Destination : $DEST_DIR"
+log "========================================"
+
+TOTAL=0
+declare -A PATTERN_COUNTS
+
+echo ""
+echo "Patterns and files to be moved:"
+echo "----------------------------------------"
+
+for PATTERN in "${PATTERNS[@]}"; do
+    FILES=("$SRC_DIR"/$PATTERN)
+    COUNT=0
+    for F in "${FILES[@]}"; do
+        [ -e "$F" ] && COUNT=$((COUNT + 1))
+    done
+    PATTERN_COUNTS["$PATTERN"]=$COUNT
+    TOTAL=$((TOTAL + COUNT))
+    echo "  Pattern : $PATTERN"
+    echo "  Files   : $COUNT"
+    echo ""
+    log "Pattern '$PATTERN' matched $COUNT file(s)"
+done
+
+echo "----------------------------------------"
+echo "  TOTAL FILES TO MOVE: $TOTAL"
+echo "----------------------------------------"
+echo ""
+
+if [ "$TOTAL" -eq 0 ]; then
+    log "No files matched any pattern. Aborting."
+    echo "[WARN] No files found. Nothing to do."
     exit 0
 fi
 
-cp -v "$SRC_DIR"/$PATTERN "$DEST_DIR/" && \
-    echo "[SUCCESS] $FILE_COUNT file(s) copied to $DEST_DIR" || \
-    echo "[ERROR] Copy failed"
+read -rp "Do you want to proceed with the move? [yes/no]: " CONFIRM
+echo ""
+
+if [ "$CONFIRM" != "yes" ]; then
+    log "User aborted the operation."
+    echo "[ABORTED] No files were moved."
+    exit 0
+fi
+
+log "User confirmed. Starting move..."
+
+SUCCESS=0
+FAILED=0
+
+for PATTERN in "${PATTERNS[@]}"; do
+    FILES=("$SRC_DIR"/$PATTERN)
+    for F in "${FILES[@]}"; do
+        if [ -e "$F" ]; then
+            FILENAME=$(basename "$F")
+            if mv "$F" "$DEST_DIR/"; then
+                log "[MOVED]  $F --> $DEST_DIR/$FILENAME"
+                SUCCESS=$((SUCCESS + 1))
+            else
+                log "[FAILED] $F"
+                FAILED=$((FAILED + 1))
+            fi
+        fi
+    done
+done
+
+log "========================================"
+log "Session complete"
+log "Successfully moved : $SUCCESS"
+log "Failed             : $FAILED"
+log "Log file           : $LOG_FILE"
+log "========================================"
+
+echo ""
+echo "[DONE] Moved: $SUCCESS | Failed: $FAILED"
+echo "[LOG]  $LOG_FILE"
