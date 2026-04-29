@@ -1,0 +1,29 @@
+#!/bin/bash
+
+SRC_DIR="$DTW_DATA/archive"
+DEST_DIR="/applis/backup"
+PATTERN="PCCF*_2025*"
+
+if [ -z "$DTW_DATA" ]; then
+    echo "[ERROR] DTW_DATA is not set."
+    exit 1
+fi
+
+if [ ! -d "$SRC_DIR" ]; then
+    echo "[ERROR] Source not found: $SRC_DIR"
+    exit 1
+fi
+
+if [ ! -d "$DEST_DIR" ]; then
+    mkdir -p "$DEST_DIR" || { echo "[ERROR] Cannot create $DEST_DIR"; exit 1; }
+fi
+
+FILE_COUNT=$(ls -1 "$SRC_DIR"/$PATTERN 2>/dev/null | wc -l)
+if [ "$FILE_COUNT" -eq 0 ]; then
+    echo "[WARN] No files matching '$PATTERN' found."
+    exit 0
+fi
+
+cp -v "$SRC_DIR"/$PATTERN "$DEST_DIR/" && \
+    echo "[SUCCESS] $FILE_COUNT file(s) copied to $DEST_DIR" || \
+    echo "[ERROR] Copy failed"
