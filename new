@@ -1,0 +1,139 @@
+#!/usr/bin/env python3
+“””
+Gestion des versions stables d’un secret Vault (KV v2) avec hvac.
+
+Install:
+pip3 install hvac
+
+Usage:
+export VAULT_ADDR=“https://vault.example.com”
+export VAULT_TOKEN=“hvs.xxxxx”
+
+```
+python3 vault_stable.py show   secret/ma-cle
+python3 vault_stable.py get    secret/ma-cle current
+python3 vault_stable.py get    secret/ma-cle previous
+python3 vault_stable.py tag    secret/ma-cle 5 4
+python3 vault_stable.py rotate secret/ma-cle 6
+```
+
+“””
+
+import os
+import sys
+import hvac
+
+# — Connexion Vault —
+
+client = hvac.Client(
+url=os.environ.get(“VAULT_ADDR”, “http://127.0.0.1:8200”),
+token=os.environ.get(“VAULT_TOKEN”),
+)
+
+if not client.is_authenticated():
+sys.exit(“Erreur : authentification Vault echouee (verifie VAULT_TOKEN)”)
+
+# — Helpers —
+
+def split_path(path):
+“”“secret/ma-cle -> (‘secret’, ‘ma-cle’)”””
+mount, key = path.split(”/”, 1)
+return mount, key
+
+def get_metadata(path):
+mount, key = split_path(path)
+return client.secrets.kv.v2.read_secret_metadata(
+path=key, mount_point=mount
+)[“data”]
+
+def get_custom(path):
+return get_metadata(path).get(“custom_metadata”) or {}
+
+def set_tags(path, current, previous):
+mount, key = split_path(path)
+client.secrets.kv.v2.update_metadata(
+path=key,
+mount_point=mount,
+custom_metadata={
+“stable_current”: str(current),
+“stable_previous”: str(previous),
+},
+)
+print(f”OK : stable_current=v{current}, stable_previous=v{previous}”)
+
+def read_version(path, version):
+mount, key = split_path(path)
+return client.secrets.kv.v2.read_secret_version(
+path=key,
+version=version,
+mount_point=mount,
+raise_on_deleted_version=True,
+)[“data”][“data”]
+
+# — Commandes —
+
+def cmd_show(path):
+meta = get_metadata(path)
+cm = meta.get(“custom_metadata”) or {}
+print(f”Path            : {path}”)
+print(f”Version actuelle: v{meta[‘current_version’]}”)
+print(f”Max versions    : {meta[‘max_versions’]}”)
+print(f”Stable current  : v{cm.get(‘stable_current’, ‘?’)}”)
+print(f”Stable previous : v{cm.get(‘stable_previous’, ‘?’)}”)
+
+def cmd_get(path, which):
+cm = get_custom(path)
+tag_key = f”stable_{which}”
+if tag_key not in cm:
+sys.exit(f”Aucune version taguee comme ‘{which}’”)
+version = int(cm[tag_key])
+data = read_version(path, version)
+print(f”Version v{version} ({which}) :”)
+for k, v in data.items():
+print(f”  {k} = {v}”)
+
+def cmd_tag(path, current, previous):
+set_tags(path, current, previous)
+
+def cmd_rotate(path, new_version):
+cm = get_custom(path)
+old_current = cm.get(“stable_current”)
+if not old_current:
+sys.exit(“Aucun stable_current existant. Utilise ‘tag’ la premiere fois.”)
+set_tags(path, new_version, old_current)
+print(f”Rotation : v{old_current} -> previous, v{new_version} -> current”)
+
+# — Dispatcher —
+
+COMMANDS = {
+“show”:   (cmd_show,   1),  # path
+“get”:    (cmd_get,    2),  # path, which
+“tag”:    (cmd_tag,    3),  # path, current, previous
+“rotate”: (cmd_rotate, 2),  # path, new_version
+}
+
+def main():
+if len(sys.argv) < 3:
+sys.exit(**doc**)
+
+```
+cmd, *args = sys.argv[1:]
+if cmd not in COMMANDS:
+    sys.exit(f"Commande inconnue : {cmd}. Choix : {list(COMMANDS)}")
+
+func, expected = COMMANDS[cmd]
+if len(args) != expected:
+    sys.exit(f"'{cmd}' attend {expected} argument(s), recu {len(args)}")
+
+try:
+    func(*args)
+except hvac.exceptions.InvalidPath:
+    sys.exit("Erreur : path inexistant dans Vault")
+except hvac.exceptions.Forbidden:
+    sys.exit("Erreur : permissions insuffisantes (verifie la policy)")
+except hvac.exceptions.VaultError as e:
+    sys.exit(f"Erreur Vault : {e}")
+```
+
+if **name** == “**main**”:
+main()
